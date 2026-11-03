@@ -57,8 +57,8 @@ void SysTick_Handler(void)
 {
     s_ticks++;
 
-    /* Every 1 ms tick, pick the next task in round-robin order and pend PendSV */
-    if (task_schedule_next()) {
+    /* Every 1 ms tick, wake sleepers, pick the highest-priority ready task and pend PendSV */
+    if (task_wake_and_reschedule(s_ticks)) {
         port_trigger_pendsv();
     }
 }

@@ -3,40 +3,54 @@
 #include "kprintf.h"
 #include "systick.h"
 #include <stdint.h>
+#include <stdbool.h>
 
-/* Simple busy delay so the terminal doesn't scroll at 10,000 lines/sec,
- * while still letting the 1 ms preemptive context switch interrupt tasks mid-print! */
-static void spin_delay(volatile uint32_t count)
+/* Set while the low-priority task is in the middle of its busy work, so the
+ * high-priority task can prove it preempted it. */
+static volatile bool s_low_busy = false;
+
+/* Burn CPU for `ticks` ms without sleeping (simulates real computation) */
+static void busy_work(uint32_t ticks)
 {
-    while (count > 0U) {
-        count--;
+    uint32_t start = systick_get_ticks();
+    while ((systick_get_ticks() - start) < ticks) {
     }
 }
 
-static void task_a(void)
+/* Priority 3: wakes every 300 ms and reports how late it was scheduled */
+static void task_high(void)
 {
-    uint32_t counter = 0;
     while (1) {
-        kprintf("[Task A | tick %u] count = %u\n", systick_get_ticks(), counter++);
-        spin_delay(200000U);
+        uint32_t due = systick_get_ticks() + 300U;
+        task_sleep(300U);
+        uint32_t now = systick_get_ticks();
+        kprintf("[HIGH] woke at tick %u, late by %u ticks%s\n",
+                now, now - due, s_low_busy ? " (preempted LOW mid-work)" : "");
     }
 }
 
-static void task_b(void)
+/* Priority 2: every second, reports how much of that second the CPU was idle */
+static void task_monitor(void)
 {
-    uint32_t counter = 0;
+    uint32_t last_idle = task_get_idle_ticks();
     while (1) {
-        kprintf("[Task B | tick %u] count = %u\n", systick_get_ticks(), counter++);
-        spin_delay(200000U);
+        task_sleep(1000U);
+        uint32_t idle = task_get_idle_ticks();
+        kprintf("[MON ] idle %u of last 1000 ticks\n", idle - last_idle);
+        last_idle = idle;
     }
 }
 
-static void task_c(void)
+/* Priority 1: 200 ms of busy work, then 300 ms of sleep (~40% CPU load) */
+static void task_low(void)
 {
-    uint32_t counter = 0;
+    uint32_t round = 0;
     while (1) {
-        kprintf("[Task C | tick %u] count = %u\n", systick_get_ticks(), counter++);
-        spin_delay(200000U);
+        s_low_busy = true;
+        busy_work(200U);
+        s_low_busy = false;
+        kprintf("[LOW ] finished work round %u\n", round++);
+        task_sleep(300U);
     }
 }
 
@@ -46,13 +60,13 @@ int main(void)
     kprintf_init(uart_putc);
 
     kprintf("========================================\n");
-    kprintf("Booting miniRTOS - Milestone %d\n", 4);
-    kprintf("Creating 3 preemptive tasks...\n");
+    kprintf("Booting miniRTOS - Milestone %d\n", 5);
+    kprintf("Priorities: HIGH=3, MON=2, LOW=1, idle=0\n");
     kprintf("========================================\n");
 
-    task_create(task_a, "Task A");
-    task_create(task_b, "Task B");
-    task_create(task_c, "Task C");
+    task_create(task_low, "Low", 1U);
+    task_create(task_monitor, "Monitor", 2U);
+    task_create(task_high, "High", 3U);
 
     /* Launch the scheduler (never returns) */
     rtos_start();

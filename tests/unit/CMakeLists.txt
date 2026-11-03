@@ -25,3 +25,11 @@ add_executable(test_kprintf
 target_include_directories(test_kprintf PRIVATE ../../include)
 target_link_libraries(test_kprintf PRIVATE unity)
 add_test(NAME kprintf_test COMMAND test_kprintf)
+# scheduler (task picking / waking) unit test
+add_executable(test_sched
+    test_sched.c
+    ../../kernel/scheduler.c
+)
+target_include_directories(test_sched PRIVATE ../../include)
+target_link_libraries(test_sched PRIVATE unity)
+add_test(NAME sched_test COMMAND test_sched)

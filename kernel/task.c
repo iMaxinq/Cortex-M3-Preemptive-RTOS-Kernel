@@ -1,11 +1,14 @@
 #include "task.h"
+#include "scheduler.h"
+#include "systick.h"
 #include <stddef.h>
 
 /* Static pool of Task Control Blocks in .bss RAM */
 static tcb_t    s_tasks[MAX_TASKS];
 static uint32_t s_num_tasks = 0U;
-static uint32_t s_current_index = 0U;
 static volatile bool s_scheduler_running = false;
+static volatile uint32_t s_idle_ticks = 0U;
+static tcb_t   *s_idle_task = NULL;
 
 /* Pointers shared with PendSV_Handler assembly in kernel/port/port.c */
 volatile tcb_t *g_current_task = NULL;
@@ -20,7 +23,18 @@ static void task_exit_trap(void)
     }
 }
 
-int task_create(task_func_t entry, const char *name)
+/* =========================================================================
+ * Idle Task: runs only when every other task is sleeping
+ * ========================================================================= */
+static void idle_task(void)
+{
+    while (1) {
+        /* Halt the core until the next interrupt instead of burning cycles */
+        __asm volatile ("wfi");
+    }
+}
+
+int task_create(task_func_t entry, const char *name, uint8_t priority)
 {
     if ((entry == NULL) || (s_num_tasks >= MAX_TASKS)) {
         return -1;
@@ -29,6 +43,9 @@ int task_create(task_func_t entry, const char *name)
     tcb_t *tcb = &s_tasks[s_num_tasks];
     tcb->pid   = s_num_tasks;
     tcb->name  = (name != NULL) ? name : "unnamed";
+    tcb->priority  = priority;
+    tcb->state     = TASK_READY;
+    tcb->wake_tick = 0U;
 
     /* Start at the top (highest memory address) of this task's stack array.
      * Mask with ~0x7UL to guarantee 8-byte stack alignment per ARM AAPCS. */
@@ -71,31 +88,72 @@ bool task_scheduler_is_running(void)
     return s_scheduler_running;
 }
 
-bool task_schedule_next(void)
+uint32_t task_get_idle_ticks(void)
 {
-    if (!s_scheduler_running || (s_num_tasks <= 1U)) {
+    return s_idle_ticks;
+}
+
+/* Choose the next task and report whether PendSV must switch to it.
+ * Caller must run in an ISR or with interrupts disabled. */
+static bool task_reschedule(void)
+{
+    uint32_t next = sched_pick_next(s_tasks, s_num_tasks, g_current_task->pid);
+
+    g_next_task = &s_tasks[next];
+    return (g_next_task != g_current_task);
+}
+
+bool task_wake_and_reschedule(uint32_t now)
+{
+    if (!s_scheduler_running) {
         return false;
     }
 
-    /* Round-robin: advance to the next task index, wrapping around */
-    s_current_index = (s_current_index + 1U) % s_num_tasks;
-    g_next_task     = &s_tasks[s_current_index];
+    if (g_current_task == s_idle_task) {
+        s_idle_ticks++;
+    }
 
-    return (g_next_task != g_current_task);
+    /* A task that wakes up here preempts a lower-priority one on this very tick */
+    sched_wake_sleepers(s_tasks, s_num_tasks, now);
+    return task_reschedule();
+}
+
+void task_sleep(uint32_t ms)
+{
+    __asm volatile ("cpsid i" ::: "memory");
+
+    tcb_t *self = (tcb_t *)g_current_task;
+    if (ms > 0U) {
+        self->wake_tick = systick_get_ticks() + ms;
+        self->state     = TASK_BLOCKED;
+    }
+
+    if (task_reschedule()) {
+        port_trigger_pendsv();
+    }
+
+    /* The pended PendSV fires right here and switches away; we resume
+     * after this line once SysTick has woken us and we are picked again. */
+    __asm volatile ("cpsie i \n isb" ::: "memory");
 }
 
 void rtos_start(void)
 {
-    if (s_num_tasks == 0U) {
+    /* The idle task needs one free slot and must be created last */
+    if ((s_num_tasks == 0U) ||
+        (task_create(idle_task, "idle", TASK_PRIORITY_IDLE) < 0)) {
         while (1) {
         }
     }
+    s_idle_task = &s_tasks[s_num_tasks - 1U];
 
-    s_current_index    = 0U;
-    g_current_task     = &s_tasks[0];
-    g_next_task        = &s_tasks[0];
+    /* Start with the most important task, not simply the first one created */
+    uint32_t first = sched_pick_next(s_tasks, s_num_tasks, s_num_tasks - 1U);
+
+    g_current_task     = &s_tasks[first];
+    g_next_task        = &s_tasks[first];
     s_scheduler_running = true;
 
-    /* Hand off to the ARM Cortex-M3 port to switch to PSP and launch Task 0 */
+    /* Hand off to the ARM Cortex-M3 port to switch to PSP and launch the first task */
     port_start_first_task();
 }

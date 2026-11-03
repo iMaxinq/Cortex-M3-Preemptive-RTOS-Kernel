@@ -12,6 +12,7 @@ add_executable(minirtos.elf
     kernel/port/fault.c
     kernel/port/port.c
     kernel/task.c
+    kernel/scheduler.c
 )
 
 target_include_directories(minirtos.elf PRIVATE ${CMAKE_SOURCE_DIR}/include)
