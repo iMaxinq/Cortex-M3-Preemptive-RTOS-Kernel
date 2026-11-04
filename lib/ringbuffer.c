@@ -26,7 +26,7 @@ bool ringbuf_push(ringbuf_t *rb, uint8_t data)
     size_t next_head = (rb->head + 1U) % rb->capacity;
 
     if (next_head == rb->tail) {
-        return false; /* Buffer is full */
+        return false; /* Full */
     }
 
     rb->buffer[rb->head] = data;
@@ -37,7 +37,7 @@ bool ringbuf_push(ringbuf_t *rb, uint8_t data)
 bool ringbuf_pop(ringbuf_t *rb, uint8_t *data)
 {
     if (rb->head == rb->tail) {
-        return false; /* Buffer is empty */
+        return false; /* Empty */
     }
 
     *data = rb->buffer[rb->tail];

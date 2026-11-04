@@ -5,13 +5,11 @@
 static uint8_t s_storage[4];
 static ringbuf_t s_rb;
 
-/* Unity automatically runs setUp() BEFORE every single RUN_TEST()! */
 void setUp(void)
 {
     ringbuf_init(&s_rb, s_storage, sizeof(s_storage));
 }
 
-/* Unity automatically runs tearDown() AFTER every single RUN_TEST() */
 void tearDown(void)
 {
 }

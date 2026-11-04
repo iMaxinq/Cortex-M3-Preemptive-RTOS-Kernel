@@ -11,7 +11,6 @@ void kprintf_init(custom_kputc_function kputc_passed)
     kputc_current = kputc_passed;
 }
 
-// wrapper
 static void kputc(char c)
 {
     if (kputc_current) {
@@ -31,7 +30,7 @@ static void kputs(const char *str)
 
 static void kprint_uint(uint32_t num, uint32_t base)
 {
-    char buf[12];  // 32-bit decimal
+    char buf[12];  /* Fits any 32-bit value */
     const char *digits = "0123456789abcdef";
     int i = 0;
 
@@ -54,7 +53,7 @@ static void kprint_int(int32_t num)
 {
     if (num < 0) {
         kputc('-');
-        // subtract from 0U in unsigned arithmetic to safely handle INT32_MIN 
+        /* Negate in unsigned arithmetic so INT32_MIN works */
         kprint_uint(0U - (uint32_t)num, 10U);
     } else {
         kprint_uint((uint32_t)num, 10U);
@@ -76,7 +75,7 @@ void kprintf(const char *format_string, ...)
             continue;
         }
 
-        format_string++; // move past '%' 
+        format_string++;
         if (*format_string == '\0') {
             break;
         }

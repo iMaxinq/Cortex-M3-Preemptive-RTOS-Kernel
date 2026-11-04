@@ -1,12 +1,7 @@
 #include <stdint.h>
 #include "kprintf.h"
 
-/* =========================================================================
- * HardFault Crash Reporter (startup/fault.c)
- * =========================================================================
- * On exception entry, Cortex-M3 hardware pushes 8 registers onto the active
- * stack in order from SP+0 upward: R0, R1, R2, R3, R12, LR, PC, xPSR.
- * ========================================================================= */
+/* Prints the frame the CPU stacked on exception entry and halts */
 void hardfault_c_handler(uint32_t *stack_frame)
 {
     uint32_t r0   = stack_frame[0];
@@ -18,8 +13,7 @@ void hardfault_c_handler(uint32_t *stack_frame)
     uint32_t pc   = stack_frame[6];
     uint32_t xpsr = stack_frame[7];
 
-    /* Read Cortex-M3 Configurable Fault Status Register (0xE000ED28)
-     * and HardFault Status Register (0xE000ED2C) */
+    /* Configurable Fault Status and HardFault Status registers */
     uint32_t cfsr = *(volatile uint32_t *)0xE000ED28UL;
     uint32_t hfsr = *(volatile uint32_t *)0xE000ED2CUL;
 
@@ -42,7 +36,8 @@ void hardfault_c_handler(uint32_t *stack_frame)
     }
 }
 
-__attribute__((naked)) // omits prologue/epilogue so we can read the stack pointer directly
+/* Naked so SP is untouched; LR bit 2 tells whether the frame is on MSP or PSP */
+__attribute__((naked))
 void HardFault_Handler(void)
 {
     __asm volatile (
@@ -51,5 +46,5 @@ void HardFault_Handler(void)
         "mrseq r0, msp              \n"
         "mrsne r0, psp              \n"
         "b hardfault_c_handler      \n"
-    ); // mrs -> mov but for special registers (MSP, PSP, etc.)
+    );
 }

@@ -4,10 +4,10 @@
 #include <stdint.h>
 
 
-//initialize the Cortex-M3 SysTick timer for a 1 ms (1000 Hz) heartbeat.
+/* Starts the 1 ms SysTick interrupt */
 void systick_init(void);
 
-//Return the number of 1 ms ticks elapsed since systick_init() was called.
+/* Ticks (ms) since systick_init() */
 uint32_t systick_get_ticks(void);
 
 #endif /* SYSTICK_H */

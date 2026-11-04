@@ -8,7 +8,6 @@ add_compile_options(-Wall -Wextra -Werror -std=c11)
 add_library(unity STATIC ../unity/unity.c)
 target_include_directories(unity PUBLIC ../unity)
 
-# ringbuffer unit test
 add_executable(test_ringbuffer
     test_ringbuffer.c
     ../../lib/ringbuffer.c
@@ -17,7 +16,6 @@ target_include_directories(test_ringbuffer PRIVATE ../../include)
 target_link_libraries(test_ringbuffer PRIVATE unity)
 add_test(NAME ringbuffer_test COMMAND test_ringbuffer)
 
-# kprintf unit test
 add_executable(test_kprintf
     test_kprintf.c
     ../../lib/kprintf.c
@@ -25,7 +23,7 @@ add_executable(test_kprintf
 target_include_directories(test_kprintf PRIVATE ../../include)
 target_link_libraries(test_kprintf PRIVATE unity)
 add_test(NAME kprintf_test COMMAND test_kprintf)
-# scheduler (task picking / waking) unit test
+
 add_executable(test_sched
     test_sched.c
     ../../kernel/scheduler.c

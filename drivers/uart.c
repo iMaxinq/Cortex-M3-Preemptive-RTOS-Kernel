@@ -2,22 +2,18 @@
 #include "ringbuffer.h"
 #include <stdint.h>
 
-// The board uses MMIO (memory mapped I/O) to access the UART peripheral.
-// The UART0 peripheral is located at address 0x40004000 in the QEMU mps2-an385 memory map.
-// The UART0 peripheral has a set of registers that can be accessed by reading and writing to specific memory addresses. 
-// The following code defines a struct that represents the UART0 registers and provides functions to initialize the UART, send and receive characters, and handle interrupts.
+/* CMSDK UART registers, memory-mapped (UART0 at 0x40004000 on mps2-an385) */
 typedef struct {
-    volatile uint32_t DATA;     /* Offset 0x00: Data Register (R/W) */
-    volatile uint32_t STATE;    /* Offset 0x04: Status Register (R/W) */
-    volatile uint32_t CTRL;     /* Offset 0x08: Control Register (R/W) */
-    volatile uint32_t INTCLEAR; /* Offset 0x0C: Interrupt Clear Register (W) */
-    volatile uint32_t BAUDDIV;  /* Offset 0x10: Baudrate Divider Register (R/W) */
+    volatile uint32_t DATA;     /* 0x00: Write sends, read receives */
+    volatile uint32_t STATE;    /* 0x04: TX/RX buffer status */
+    volatile uint32_t CTRL;     /* 0x08: TX/RX and interrupt enables */
+    volatile uint32_t INTCLEAR; /* 0x0C: Write 1 to clear an interrupt */
+    volatile uint32_t BAUDDIV;  /* 0x10: Baud rate divider */
 } cmsdk_uart_t;
 
 #define UART0_BASE          (0x40004000UL)
-#define UART0               ((cmsdk_uart_t *)UART0_BASE) // treat UART0 as a pointer to the struct cmsdk_uart_t and forces C to put the struct at UART0_BASE address
+#define UART0               ((cmsdk_uart_t *)UART0_BASE)
 
-// bitmasks declarations
 /* STATE register */
 #define UART_STATE_TX_FULL  (1UL << 0)
 
@@ -30,47 +26,40 @@ typedef struct {
 #define UART_INTCLEAR_TX    (1UL << 0)
 #define UART_INTCLEAR_RX    (1UL << 1)
 
-/* Cortex-M3 NVIC Interrupt Set-Enable Register 0 (controls IRQs 0..31) */
-#define NVIC_ISER0          (*(volatile uint32_t *)0xE000E100UL) // used to write directly to 0xE000E100 address (enabling IRQ 0))
-#define UART0_RX_IRQn       (0U) /* IRQ 0 in startup.c vector_table[16] */
+/* NVIC interrupt set-enable register for IRQs 0..31 */
+#define NVIC_ISER0          (*(volatile uint32_t *)0xE000E100UL)
+#define UART0_RX_IRQn       (0U) /* vector_table[16] in startup.c */
 
-/* --- Private RX Ring Buffer --- */
 #define UART_RX_BUF_SIZE    (64U)
-static uint8_t s_rx_buf[UART_RX_BUF_SIZE]; // the actual buffer
-static ringbuf_t s_rx_rb; // the struct that holds the ring buffer state (head, tail, capacity, pointer to actual buffer)
+static uint8_t s_rx_buf[UART_RX_BUF_SIZE];
+static ringbuf_t s_rx_rb; /* Filled by UART0RX_Handler, drained by uart_getc() */
 
 void uart_init(void)
 {
-    /* initialize RX ring buffer */
     ringbuf_init(&s_rx_rb, s_rx_buf, UART_RX_BUF_SIZE);
 
-    /* baud rate divider (25 MHz system clock / 115200 baud = 217) */
+    /* 25 MHz / 115200 baud = 217 */
     UART0->BAUDDIV = 217UL;
 
-    /* clear any pending RX interrupt flag */
     UART0->INTCLEAR = UART_INTCLEAR_RX;
 
-    /* enable TX, RX, and the RX interrupt in the UART peripheral */
     UART0->CTRL = UART_CTRL_TX_EN | UART_CTRL_RX_EN | UART_CTRL_RX_IRQ_EN;
 
-    /* enable IRQ 0 (UART0RX) inside the ARM Cortex-M3 NVIC */
     NVIC_ISER0 = (1UL << UART0_RX_IRQn);
 }
 
 void uart_putc(char c)
 {
-    /* Convert '\n' to "\r\n" so terminal lines return to column 0 properly */
+    /* Terminals need "\r\n" to return to column 0 */
     if (c == '\n') {
         while (UART0->STATE & UART_STATE_TX_FULL) {
         }
         UART0->DATA = (uint32_t)'\r';
     }
 
-    /* wait until the UART transmit buffer is not full */
     while (UART0->STATE & UART_STATE_TX_FULL) {
     }
 
-    /* write character to the hardware data register */
     UART0->DATA = (uint32_t)(uint8_t)c;
 }
 
@@ -82,15 +71,11 @@ bool uart_getc(char *c)
     return ringbuf_pop(&s_rx_rb, (uint8_t *)c);
 }
 
-/* Hardware Interrupt Service Routine (overrides weak alias in startup.c). Is called when UART0RX interrupt is received */
 void UART0RX_Handler(void)
 {
-    /* read the received byte from the hardware DATA register */
     uint8_t data = (uint8_t)(UART0->DATA & 0xFFUL);
 
-    /* clear the RX interrupt flag in the UART peripheral */
     UART0->INTCLEAR = UART_INTCLEAR_RX;
 
-    /* ush the byte into the ring buffer for main() to consume later */
-    (void)ringbuf_push(&s_rx_rb, data);
+    (void)ringbuf_push(&s_rx_rb, data); /* Dropped if the buffer is full */
 }

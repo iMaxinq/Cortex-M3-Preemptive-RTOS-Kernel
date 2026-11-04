@@ -68,7 +68,6 @@ int main(void)
     task_create(task_monitor, "Monitor", 2U);
     task_create(task_high, "High", 3U);
 
-    /* Launch the scheduler (never returns) */
     rtos_start();
 
     return 0;
